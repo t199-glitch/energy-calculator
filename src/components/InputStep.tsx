@@ -116,14 +116,26 @@ export function InputStep({ inputs, setInputs, results, onNext }: { inputs: Inpu
                   ) : undefined
                 }
               >
-                <div className="grid gap-x-4 gap-y-1 sm:grid-cols-2 lg:grid-cols-4">
-                  <NumberField id="phone-wh" label="每次充電耗電量" value={inputs.phone.whPerCharge} unit="Wh" limit="phoneWh" step={1}
-                    hint="約 = 電池 mAh × 3.85 ÷ 1000，再加 10–20% 損失"
-                    onChange={(v) => setInputs((s) => ({ ...s, phone: { ...s.phone, whPerCharge: v } }))} />
+                {/* 簡化版：只填充電次數，Wh 固定預設值 */}
+                <div className="grid gap-x-4 gap-y-1 sm:grid-cols-2">
                   <NumberField id="phone-n" label="每日充電次數" value={inputs.phone.chargesPerDay} unit="次" limit="phoneCharges" step={0.5}
-                    hint="兩天充一次可填 0.5"
+                    hint="兩天充一次可填 0.5；充飽一次計為 1 次"
                     onChange={(v) => setInputs((s) => ({ ...s, phone: { ...s.phone, chargesPerDay: v } }))} />
+                  <div className="self-end rounded-xl bg-slate-50 px-4 py-2 text-sm text-slate-600">
+                    <span className="font-semibold text-slate-700">充電耗電量：</span>每次約 {inputs.phone.whPerCharge} Wh
+                    <br />
+                    <span className="text-xs text-slate-500">一般智慧型手機的估計值，可在下方進階設定修改</span>
+                  </div>
                 </div>
+                {/* 進階：允許自訂 Wh */}
+                <details className="mt-3 border-t border-slate-200 pt-2 text-sm">
+                  <summary className="cursor-pointer select-none font-medium text-slate-500 hover:text-teal-700">進階設定</summary>
+                  <div className="mt-2 grid gap-x-4 sm:grid-cols-2">
+                    <NumberField id="phone-wh" label="每次充電耗電量" value={inputs.phone.whPerCharge} unit="Wh" limit="phoneWh"
+                      hint="約等於電池容量（mAh）× 3.85 V ÷ 1000，再加上約 20% 充電損耗"
+                      onChange={(v) => setInputs((s) => ({ ...s, phone: { ...s.phone, whPerCharge: v } }))} />
+                  </div>
+                </details>
               </ItemShell>
             </div>
             <button type="button" className="btn-ghost w-full border-dashed" onClick={() => setInputs((s) => ({ ...s, appliances: [...s.appliances, newCustomAppliance('其他家電')] }))}>

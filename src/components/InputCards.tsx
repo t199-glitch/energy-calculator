@@ -2,10 +2,10 @@
 // 輸入卡片：電器、交通、燃料、已知能源
 // 主資料輸入與情境模擬共用
 // ──────────────────────────────────────────────
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import {
   AirVent, Fan, Laptop, Tv, ShowerHead, CookingPot, Microwave, Plug, Bike, Car, Bus, TrainFront,
-  Footprints, Zap, Flame, Fuel, Trash2, Gauge,
+  Footprints, Zap, Flame, Fuel, Trash2, Gauge, ChevronDown,
 } from 'lucide-react';
 import type { Appliance, ApplianceKind, CarrierKey, FuelItem, KnownEnergy, TransportItem, TransportKind } from '../types';
 import { NumberField, Segmented, Toggle } from './ui';
@@ -45,8 +45,31 @@ const APPLIANCE_HINT: Partial<Record<ApplianceKind, string>> = {
   waterHeater: '填加熱元件實際通電時間，不是插電時間。',
   riceCooker: '大同電鍋常見約 800 W。',
   microwave: '填「輸入功率」，通常高於微波輸出功率。',
-  custom: '請參考電器銘牌標示的功率。',
+  custom: '請參考電器銘牌標示的功率（W）。',
 };
+
+// ── 進階設定收折元件 ──
+function AdvancedSection({ children }: { children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mt-3 border-t border-slate-200 pt-2">
+      <button
+        type="button"
+        className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-slate-700 transition-colors"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+      >
+        <ChevronDown size={14} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
+        進階設定
+      </button>
+      {open && (
+        <div className="mt-3 animate-rise grid gap-x-4 gap-y-1 sm:grid-cols-2 lg:grid-cols-4">
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ── 卡片外框 ──
 export function ItemShell({
@@ -109,10 +132,16 @@ export function ApplianceCard({
   onRemove?: () => void;
   idPrefix: string;
 }) {
-  const isKw = a.powerUnit === 'kW';
-  const kw = isKw ? safe(a.powerValue, 'powerKw') : safe(a.powerValue, 'powerW') / 1000;
+  // 統一以 W 輸入（介面更直觀），內部始終換算為 kW 計算
+  const powerW = a.powerUnit === 'kW' ? a.powerValue * 1000 : a.powerValue;
+  const kw = powerW / 1000;
   const kwh = (kw * safe(a.hours, 'hours') * safe(a.loadPercent, 'loadPercent')) / 100 / safe(a.share, 'share');
-  const showLoad = a.kind === 'ac' || a.kind === 'custom';
+
+  // 共用 hint 文字——依分攤情境給不同提示
+  const shareHint = safe(a.share, 'share') >= 10
+    ? `目前設定 ${Math.round(safe(a.share, 'share'))} 人（班級共用情境）`
+    : `與家人共用時平均分攤；若全家 4 人填 4，班級共用填 30–45`;
+
   return (
     <ItemShell
       icon={APPLIANCE_ICON[a.kind]}
@@ -140,32 +169,18 @@ export function ApplianceCard({
         )
       }
     >
-      <div className="grid gap-x-4 gap-y-1 sm:grid-cols-2 lg:grid-cols-4">
-        <div>
-          <NumberField
-            id={`${idPrefix}-power`}
-            label="輸入功率"
-            value={a.powerValue}
-            onChange={(v) => onChange({ powerValue: v })}
-            unit={a.powerUnit}
-            limit={isKw ? 'powerKw' : 'powerW'}
-            step={isKw ? 0.1 : 10}
-            hint={APPLIANCE_HINT[a.kind]}
-          />
-          {a.kind === 'custom' && (
-            <Segmented
-              label="功率單位"
-              value={a.powerUnit}
-              onChange={(u) =>
-                onChange({ powerUnit: u, powerValue: u === 'kW' ? Math.round((a.powerValue / 1000) * 1000) / 1000 : Math.round(a.powerValue * 1000) })
-              }
-              options={[
-                { value: 'W', label: 'W' },
-                { value: 'kW', label: 'kW' },
-              ]}
-            />
-          )}
-        </div>
+      {/* 基本欄位：功率（固定 W）、使用時間、分攤人數 */}
+      <div className="grid gap-x-4 gap-y-1 sm:grid-cols-2 lg:grid-cols-3">
+        <NumberField
+          id={`${idPrefix}-power`}
+          label="輸入功率"
+          value={powerW}
+          onChange={(v) => onChange({ powerValue: v, powerUnit: 'W' })}
+          unit="W"
+          limit="powerW"
+          step={10}
+          hint={APPLIANCE_HINT[a.kind]}
+        />
         <NumberField
           id={`${idPrefix}-hours`}
           label={a.kind === 'waterHeater' ? '每日加熱時間' : '每日使用時間'}
@@ -176,18 +191,6 @@ export function ApplianceCard({
           step={0.25}
           hint="0.5 小時 = 30 分鐘"
         />
-        {showLoad && (
-          <NumberField
-            id={`${idPrefix}-load`}
-            label="平均負載比例"
-            value={a.loadPercent}
-            onChange={(v) => onChange({ loadPercent: v })}
-            unit="%"
-            limit="loadPercent"
-            step={5}
-            hint={a.kind === 'ac' ? '變頻冷氣常見 40–70%' : '一般電器為 100%'}
-          />
-        )}
         <NumberField
           id={`${idPrefix}-share`}
           label="共同使用人數"
@@ -195,9 +198,60 @@ export function ApplianceCard({
           onChange={(v) => onChange({ share: Math.round(v) })}
           unit="人"
           limit="share"
-          hint="與家人共用時平均分攤"
+          hint={shareHint}
         />
       </div>
+
+      {/* 進階設定：負載比例（冷氣/自訂電器）、kW 單位切換 */}
+      {(a.kind === 'ac' || a.kind === 'custom') && (
+        <AdvancedSection>
+          {a.kind === 'ac' && (
+            <NumberField
+              id={`${idPrefix}-load`}
+              label="平均負載比例"
+              value={a.loadPercent}
+              onChange={(v) => onChange({ loadPercent: v })}
+              unit="%"
+              limit="loadPercent"
+              step={5}
+              hint="變頻冷氣常見 40–70%；不確定時維持預設 60%"
+            />
+          )}
+          {a.kind === 'custom' && (
+            <>
+              <NumberField
+                id={`${idPrefix}-load-custom`}
+                label="平均負載比例"
+                value={a.loadPercent}
+                onChange={(v) => onChange({ loadPercent: v })}
+                unit="%"
+                limit="loadPercent"
+                step={5}
+                hint="一般電器維持 100%"
+              />
+              <div>
+                <Segmented
+                  label="功率輸入單位"
+                  value={a.powerUnit}
+                  onChange={(u) =>
+                    onChange({
+                      powerUnit: u,
+                      powerValue: u === 'kW'
+                        ? Math.round((powerW / 1000) * 1000) / 1000
+                        : Math.round(powerW),
+                    })
+                  }
+                  options={[
+                    { value: 'W', label: 'W（瓦）' },
+                    { value: 'kW', label: 'kW（千瓦）' },
+                  ]}
+                />
+                <p className="mt-1 text-xs text-slate-500">電器銘牌以 kW 標示時可切換</p>
+              </div>
+            </>
+          )}
+        </AdvancedSection>
+      )}
     </ItemShell>
   );
 }
@@ -245,6 +299,7 @@ export function TransportCard({
         ) : undefined
       }
     >
+      {/* 基本欄位：距離輸入方式 + 距離 + 頻率 */}
       <div className="mb-3 flex flex-wrap items-center gap-3">
         <span className="text-sm font-semibold text-slate-600">距離輸入方式</span>
         <Segmented
@@ -257,7 +312,7 @@ export function TransportCard({
           ]}
         />
       </div>
-      <div className="grid gap-x-4 gap-y-1 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-x-4 gap-y-1 sm:grid-cols-2 lg:grid-cols-3">
         <NumberField
           id={`${idPrefix}-dist`}
           label={t.distanceMode === 'round' ? '每日往返距離' : '單程距離'}
@@ -276,20 +331,8 @@ export function TransportCard({
           unit="天／週"
           limit="daysPerWeek"
           step={1}
-          hint="結果換算為平均每日（× 天數 ÷ 7）"
+          hint="換算為一週的平均每日（× 天數 ÷ 7）"
         />
-        {meta.method !== 'none' && (
-          <NumberField
-            id={`${idPrefix}-eff`}
-            label={meta.effLabel}
-            value={t.efficiency}
-            onChange={(v) => onChange({ efficiency: v })}
-            unit={meta.effUnit}
-            limit={EFF_LIMIT[t.kind]}
-            step={effStep}
-            hint={`預設 ${fmt(meta.effParam ? P(meta.effParam) : 0, 3)}（教學示範值）`}
-          />
-        )}
         {meta.privateVehicle && (
           <NumberField
             id={`${idPrefix}-occ`}
@@ -302,6 +345,23 @@ export function TransportCard({
           />
         )}
       </div>
+
+      {/* 進階設定：能源效率 */}
+      {meta.method !== 'none' && (
+        <AdvancedSection>
+          <NumberField
+            id={`${idPrefix}-eff`}
+            label={meta.effLabel}
+            value={t.efficiency}
+            onChange={(v) => onChange({ efficiency: v })}
+            unit={meta.effUnit}
+            limit={EFF_LIMIT[t.kind]}
+            step={effStep}
+            hint={`預設 ${fmt(meta.effParam ? P(meta.effParam) : 0, 3)}（教學示範值，可依實際修改）`}
+          />
+        </AdvancedSection>
+      )}
+
       {meta.method === 'none' && (
         <p className="mt-2 text-sm text-slate-600">步行與自行車不使用外部燃料或電力，記為 0 MJ。本工具不計算人體代謝能耗（食物熱量）。</p>
       )}
@@ -331,6 +391,9 @@ export function FuelCard({
   const isCustom = f.kind === 'custom';
   const monthlyLabel = f.kind === 'naturalGas' ? '每月帳單用量' : f.kind === 'lpg' ? '每月使用桶數' : '每月用量';
   const monthlyUnit = f.kind === 'naturalGas' ? '度（m³）' : f.kind === 'lpg' ? '桶' : f.unit;
+
+  // 強制預設顯示月帳單模式（最貼近學生生活）
+  const effectiveMode = f.mode ?? 'monthly';
 
   return (
     <ItemShell
@@ -398,21 +461,62 @@ export function FuelCard({
         </div>
       )}
 
-      <div className="mb-3 flex flex-wrap items-center gap-3">
-        <span className="text-sm font-semibold text-slate-600">估算方式</span>
-        <Segmented
-          label="燃料估算方式"
-          value={f.mode}
-          onChange={(m) => onChange({ mode: m })}
-          options={[
-            { value: 'daily', label: '每日實際用量' },
-            { value: 'monthly', label: '每月帳單分攤' },
-            { value: 'equipment', label: '依設備功率估算' },
-          ]}
+      {/* 主要輸入：月帳單模式（預設顯示，最貼近生活） */}
+      <div className="grid gap-x-4 gap-y-1 sm:grid-cols-2 lg:grid-cols-3">
+        <NumberField
+          id={`${idPrefix}-monthly`}
+          label={monthlyLabel}
+          value={f.monthlyAmount}
+          onChange={(v) => onChange({ monthlyAmount: v, mode: 'monthly' })}
+          unit={monthlyUnit}
+          limit="fuelMonthly"
+          step={f.kind === 'lpg' ? 0.1 : 1}
+          hint={
+            f.kind === 'naturalGas'
+              ? '帳單上的「度數」即 m³；雙月帳單請除以 2'
+              : f.kind === 'lpg'
+              ? '依帳單平均分攤至每日（÷ 30）'
+              : '請填每月平均用量'
+          }
+        />
+        {f.kind === 'lpg' && effectiveMode === 'monthly' && (
+          <NumberField
+            id={`${idPrefix}-cyl`}
+            label="每桶重量"
+            value={f.cylinderKg}
+            onChange={(v) => onChange({ cylinderKg: v })}
+            unit="kg"
+            limit="cylinderKg"
+            hint="家用桶裝瓦斯常見 20 kg"
+          />
+        )}
+        <NumberField
+          id={`${idPrefix}-hh`}
+          label="家庭分攤人數"
+          value={f.householdSize}
+          onChange={(v) => onChange({ householdSize: Math.round(v) })}
+          unit="人"
+          limit="household"
+          hint="全家共用時平均分攤到每人（一般家庭填 3–5）"
         />
       </div>
 
-      <div className="grid gap-x-4 gap-y-1 sm:grid-cols-2 lg:grid-cols-4">
+      {/* 進階設定：其他估算模式、燃料熱值 */}
+      <AdvancedSection>
+        <div className="col-span-full mb-2">
+          <span className="text-sm font-semibold text-slate-600">改用其他估算方式</span>
+          <Segmented
+            label="燃料估算方式"
+            value={f.mode}
+            onChange={(m) => onChange({ mode: m })}
+            options={[
+              { value: 'monthly', label: '月帳單分攤（建議）' },
+              { value: 'daily', label: '每日實際用量' },
+              { value: 'equipment', label: '依設備功率估算' },
+            ]}
+          />
+        </div>
+
         {f.mode === 'daily' && (
           <NumberField
             id={`${idPrefix}-daily`}
@@ -424,31 +528,6 @@ export function FuelCard({
             step={0.01}
             hint="若是個人用量，分攤人數請填 1"
           />
-        )}
-        {f.mode === 'monthly' && (
-          <>
-            <NumberField
-              id={`${idPrefix}-monthly`}
-              label={monthlyLabel}
-              value={f.monthlyAmount}
-              onChange={(v) => onChange({ monthlyAmount: v })}
-              unit={monthlyUnit}
-              limit="fuelMonthly"
-              step={f.kind === 'lpg' ? 0.1 : 1}
-              hint={f.kind === 'naturalGas' ? '帳單上的「度數」即立方公尺；雙月帳單請除以 2' : '依帳單平均分攤至每日（÷ 30）'}
-            />
-            {f.kind === 'lpg' && (
-              <NumberField
-                id={`${idPrefix}-cyl`}
-                label="每桶重量"
-                value={f.cylinderKg}
-                onChange={(v) => onChange({ cylinderKg: v })}
-                unit="kg"
-                limit="cylinderKg"
-                hint="家用桶裝瓦斯常見 20 kg"
-              />
-            )}
-          </>
         )}
         {f.mode === 'equipment' && (
           <>
@@ -475,15 +554,6 @@ export function FuelCard({
           </>
         )}
         <NumberField
-          id={`${idPrefix}-hh`}
-          label="家庭分攤人數"
-          value={f.householdSize}
-          onChange={(v) => onChange({ householdSize: Math.round(v) })}
-          unit="人"
-          limit="household"
-          hint="全家共用時平均分攤到每人"
-        />
-        <NumberField
           id={`${idPrefix}-hv`}
           label="燃料熱值"
           value={f.heatValueMJ}
@@ -491,12 +561,13 @@ export function FuelCard({
           unit={`MJ/${f.unit}`}
           limit="heatValue"
           step={0.1}
-          hint={isCustom ? '可依產品標示修改' : '預設依能源署熱值表，可依帳單修改'}
+          hint={isCustom ? '可依產品標示修改' : '預設依能源署熱值表；通常不需更改'}
         />
-      </div>
+      </AdvancedSection>
+
       {f.mode === 'equipment' && (
         <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
-          不確定性提醒：「依設備功率估算」假設全程以設定功率燃燒，實際多為中小火，可能高估。若有帳單資料，建議改用「每月帳單分攤」。
+          不確定性提醒：「依設備功率估算」假設全程以設定功率燃燒，實際多為中小火，可能高估。若有帳單資料，建議改用「月帳單分攤」。
         </p>
       )}
     </ItemShell>
